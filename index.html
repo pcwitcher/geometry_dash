@@ -1,386 +1,440 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Geometry Dash</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-<style>
-  #gd-wrap { width: 100%; user-select: none; }
-  #gd-canvas { display: block; width: 100%; border-radius: 12px; cursor: pointer; }
-  #gd-ui { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px 0; }
-  #gd-score { font-size: 14px; font-weight: 500; color: var(--text-primary); }
-  #gd-best { font-size: 13px; color: var(--text-secondary); }
-  #gd-hint { font-size: 12px; color: var(--text-muted); text-align: center; padding-top: 4px; }
-</style>
+    body {
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: #0f0c29;
+      font-family: system-ui, sans-serif;
+      color: #e2e8f0;
+    }
 
-<div id="gd-wrap">
-  <canvas id="gd-canvas" width="680" height="220"></canvas>
-  <div id="gd-ui">
-    <span id="gd-score">Wynik: 0</span>
-    <span id="gd-best">Rekord: 0</span>
+    h1 {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #c084fc;
+      margin-bottom: 16px;
+    }
+
+    #gd-wrap {
+      width: min(680px, 100vw - 24px);
+      user-select: none;
+    }
+
+    #gd-canvas {
+      display: block;
+      width: 100%;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 0 40px rgba(168, 85, 247, 0.25);
+    }
+
+    #gd-ui {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 4px 0;
+    }
+
+    #gd-score { font-size: 14px; font-weight: 500; color: #e2e8f0; }
+    #gd-best  { font-size: 13px; color: #94a3b8; }
+
+    #gd-hint  {
+      font-size: 12px;
+      color: #64748b;
+      text-align: center;
+      padding-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Geometry Dash</h1>
+
+  <div id="gd-wrap">
+    <canvas id="gd-canvas" width="680" height="220"></canvas>
+    <div id="gd-ui">
+      <span id="gd-score">Wynik: 0</span>
+      <span id="gd-best">Rekord: 0</span>
+    </div>
+    <p id="gd-hint">Kliknij lub wciśnij spację, żeby skoczyć</p>
   </div>
-  <p id="gd-hint">Kliknij lub wciśnij spację, żeby skoczyć</p>
-</div>
 
-<script>
-(function() {
-  const canvas = document.getElementById('gd-canvas');
-  const ctx = canvas.getContext('2d');
-  const W = 680, H = 220;
-  canvas.width = W; canvas.height = H;
+  <script>
+  (function () {
+    const canvas = document.getElementById('gd-canvas');
+    const ctx    = canvas.getContext('2d');
+    const W = 680, H = 220;
+    canvas.width = W; canvas.height = H;
 
-  const GROUND = H - 36;
-  const CUBE_SIZE = 28;
-  const CUBE_X = 80;
-  const GRAVITY = 0.55;
-  const JUMP = -11.5;
-  const SPEEDS = [4, 5, 6, 7, 8];
+    const GROUND    = H - 36;
+    const CUBE_SIZE = 28;
+    const CUBE_X    = 80;
+    const GRAVITY   = 0.55;
+    const JUMP      = -11.5;
+    const SPEEDS    = [4, 5, 6, 7, 8];
 
-  let state, cube, obstacles, particles, bg, score, best, speed, raf, spawnTimer, spawnInterval, lastTime;
-  best = 0;
+    let state, cube, obstacles, particles, bg, score, best, speed, raf, spawnTimer, spawnInterval, lastTime;
+    best = 0;
 
-  const colors = {
-    sky: ['#1a1a2e','#16213e'],
-    ground: '#0f3460',
-    groundLine: '#533483',
-    cube: '#a855f7',
-    cubeGlow: '#7c3aed',
-    cubeEdge: '#c084fc',
-    obstacle: ['#e11d48','#be123c'],
-    obstacleEdge: '#fb7185',
-    star: '#e2e8f0',
-    particle: ['#f472b6','#a78bfa','#60a5fa','#34d399'],
-    trail: '#7c3aed'
-  };
+    const colors = {
+      sky:          ['#1a1a2e', '#16213e'],
+      ground:       '#0f3460',
+      groundLine:   '#533483',
+      cube:         '#a855f7',
+      cubeGlow:     '#7c3aed',
+      cubeEdge:     '#c084fc',
+      obstacle:     ['#e11d48', '#be123c'],
+      obstacleEdge: '#fb7185',
+      star:         '#e2e8f0',
+      particle:     ['#f472b6', '#a78bfa', '#60a5fa', '#34d399'],
+      trail:        '#7c3aed'
+    };
 
-  function init() {
-    state = 'idle';
-    cube = { y: GROUND - CUBE_SIZE, vy: 0, angle: 0, onGround: true };
-    obstacles = [];
-    particles = [];
-    bg = { x: 0 };
-    score = 0;
-    speed = SPEEDS[0];
-    spawnTimer = 0;
-    spawnInterval = 100;
-    lastTime = null;
-    updateUI();
-  }
-
-  function spawnObstacle() {
-    const type = Math.random() < 0.6 ? 'spike' : 'block';
-    const h = type === 'spike' ? 28 + Math.random() * 18 : 22 + Math.random() * 22;
-    const w = type === 'spike' ? 22 : 18 + Math.random() * 14;
-    obstacles.push({ x: W + 20, y: GROUND - h, w, h, type });
-  }
-
-  function spawnParticles(x, y) {
-    for (let i = 0; i < 8; i++) {
-      particles.push({
-        x, y,
-        vx: (Math.random() - 0.5) * 6,
-        vy: -Math.random() * 6 - 1,
-        life: 1,
-        color: colors.particle[Math.floor(Math.random() * 4)],
-        size: 3 + Math.random() * 3
-      });
-    }
-  }
-
-  function drawBg() {
-    const grad = ctx.createLinearGradient(0, 0, 0, H);
-    grad.addColorStop(0, '#0f0c29');
-    grad.addColorStop(1, '#302b63');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    for (let i = 0; i < 40; i++) {
-      const sx = ((i * 173 + bg.x * 0.2) % W + W) % W;
-      const sy = (i * 67) % (GROUND - 20);
-      const r = 0.5 + (i % 3) * 0.5;
-      ctx.beginPath();
-      ctx.arc(sx, sy, r, 0, Math.PI * 2);
-      ctx.fill();
+    function init() {
+      state         = 'idle';
+      cube          = { y: GROUND - CUBE_SIZE, vy: 0, angle: 0, onGround: true };
+      obstacles     = [];
+      particles     = [];
+      bg            = { x: 0 };
+      score         = 0;
+      speed         = SPEEDS[0];
+      spawnTimer    = 0;
+      spawnInterval = 100;
+      lastTime      = null;
+      updateUI();
     }
 
-    const lineCount = 6;
-    for (let l = 0; l < lineCount; l++) {
-      const lx = ((bg.x * 0.5 * (l + 1) * 0.3) % (W * 1.5) + W * 1.5) % (W * 1.5);
-      ctx.strokeStyle = `rgba(168,85,247,${0.04 + l * 0.015})`;
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(lx - W * 0.5, 0);
-      ctx.lineTo(lx, GROUND);
-      ctx.stroke();
-    }
-  }
-
-  function drawGround() {
-    ctx.fillStyle = colors.ground;
-    ctx.fillRect(0, GROUND, W, H - GROUND);
-    ctx.fillStyle = colors.groundLine;
-    ctx.fillRect(0, GROUND, W, 3);
-    ctx.fillStyle = 'rgba(168,85,247,0.3)';
-    ctx.fillRect(0, GROUND + 3, W, 1);
-
-    const tileW = 40;
-    const off = bg.x % tileW;
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
-    for (let tx = -off; tx < W; tx += tileW) {
-      ctx.beginPath();
-      ctx.moveTo(tx, GROUND + 3);
-      ctx.lineTo(tx, H);
-      ctx.stroke();
-    }
-  }
-
-  function drawCube() {
-    const cx = CUBE_X + CUBE_SIZE / 2;
-    const cy = cube.y + CUBE_SIZE / 2;
-
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(cube.angle);
-
-    ctx.shadowColor = colors.cubeGlow;
-    ctx.shadowBlur = 12;
-
-    ctx.fillStyle = colors.cube;
-    ctx.beginPath();
-    ctx.roundRect(-CUBE_SIZE/2, -CUBE_SIZE/2, CUBE_SIZE, CUBE_SIZE, 4);
-    ctx.fill();
-
-    ctx.shadowBlur = 0;
-
-    ctx.strokeStyle = colors.cubeEdge;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.roundRect(-CUBE_SIZE/2, -CUBE_SIZE/2, CUBE_SIZE, CUBE_SIZE, 4);
-    ctx.stroke();
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-    ctx.lineWidth = 1;
-    const s2 = CUBE_SIZE * 0.4;
-    ctx.strokeRect(-s2/2, -s2/2, s2, s2);
-
-    ctx.strokeStyle = 'rgba(192,132,252,0.6)';
-    ctx.lineWidth = 0.8;
-    ctx.beginPath();
-    ctx.moveTo(-CUBE_SIZE/2, -CUBE_SIZE/2);
-    ctx.lineTo(CUBE_SIZE/2, CUBE_SIZE/2);
-    ctx.stroke();
-
-    ctx.restore();
-  }
-
-  function drawObstacle(o) {
-    if (o.type === 'spike') {
-      const grad = ctx.createLinearGradient(o.x, o.y, o.x + o.w, o.y + o.h);
-      grad.addColorStop(0, colors.obstacle[0]);
-      grad.addColorStop(1, colors.obstacle[1]);
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(o.x, o.y + o.h);
-      ctx.lineTo(o.x + o.w / 2, o.y);
-      ctx.lineTo(o.x + o.w, o.y + o.h);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = colors.obstacleEdge;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-    } else {
-      const grad = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
-      grad.addColorStop(0, colors.obstacle[0]);
-      grad.addColorStop(1, colors.obstacle[1]);
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.roundRect(o.x, o.y, o.w, o.h, 3);
-      ctx.fill();
-      ctx.strokeStyle = colors.obstacleEdge;
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.roundRect(o.x, o.y, o.w, o.h, 3);
-      ctx.stroke();
-    }
-  }
-
-  function drawParticles() {
-    particles.forEach(p => {
-      ctx.globalAlpha = p.life;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.globalAlpha = 1;
-  }
-
-  function drawHUD() {
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.font = '500 16px system-ui';
-    ctx.textAlign = 'left';
-    ctx.fillText(score, 12, 24);
-
-    const pct = Math.min(score / 500, 1);
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    ctx.beginPath();
-    ctx.roundRect(W - 112, 10, 100, 6, 3);
-    ctx.fill();
-    ctx.fillStyle = '#a855f7';
-    ctx.beginPath();
-    ctx.roundRect(W - 112, 10, pct * 100, 6, 3);
-    ctx.fill();
-  }
-
-  function drawIdle() {
-    drawBg();
-    drawGround();
-    drawCube();
-
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.fillStyle = '#fff';
-    ctx.font = '500 28px system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillText('Geometry Dash', W/2, H/2 - 20);
-    ctx.font = '400 14px system-ui';
-    ctx.fillStyle = 'rgba(255,255,255,0.7)';
-    ctx.fillText('Kliknij lub naciśnij spację, żeby zacząć', W/2, H/2 + 12);
-  }
-
-  function drawDead() {
-    drawBg();
-    drawGround();
-    obstacles.forEach(drawObstacle);
-    drawParticles();
-    drawHUD();
-
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.fillStyle = '#f87171';
-    ctx.font = '500 26px system-ui';
-    ctx.textAlign = 'center';
-    ctx.fillText('Uderzono!', W/2, H/2 - 16);
-    ctx.fillStyle = 'rgba(255,255,255,0.8)';
-    ctx.font = '400 14px system-ui';
-    ctx.fillText(`Wynik: ${score}  |  Rekord: ${best}`, W/2, H/2 + 12);
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = '400 13px system-ui';
-    ctx.fillText('Kliknij, żeby spróbować znowu', W/2, H/2 + 34);
-  }
-
-  function update(dt) {
-    dt = Math.min(dt, 40);
-    const s = dt / 16.67;
-
-    bg.x += speed * s;
-
-    cube.vy += GRAVITY * s;
-    cube.y += cube.vy * s;
-
-    if (cube.y >= GROUND - CUBE_SIZE) {
-      cube.y = GROUND - CUBE_SIZE;
-      cube.vy = 0;
-      cube.onGround = true;
-    } else {
-      cube.onGround = false;
+    function spawnObstacle() {
+      const type = Math.random() < 0.6 ? 'spike' : 'block';
+      const h = type === 'spike' ? 28 + Math.random() * 18 : 22 + Math.random() * 22;
+      const w = type === 'spike' ? 22 : 18 + Math.random() * 14;
+      obstacles.push({ x: W + 20, y: GROUND - h, w, h, type });
     }
 
-    cube.angle += (cube.onGround ? 0.07 : 0.09) * speed / 5 * s;
-
-    spawnTimer += s;
-    if (spawnTimer >= spawnInterval) {
-      spawnObstacle();
-      spawnTimer = 0;
-      spawnInterval = Math.max(45, spawnInterval - 0.5);
-    }
-
-    obstacles = obstacles.filter(o => {
-      o.x -= speed * s;
-      return o.x > -60;
-    });
-
-    particles = particles.filter(p => {
-      p.x += p.vx * s;
-      p.y += p.vy * s;
-      p.vy += 0.15 * s;
-      p.life -= 0.025 * s;
-      return p.life > 0;
-    });
-
-    score += Math.round(speed * s * 0.4);
-    speed = SPEEDS[Math.min(Math.floor(score / 200), SPEEDS.length - 1)];
-
-    for (const o of obstacles) {
-      const pad = 4;
-      if (
-        CUBE_X + pad < o.x + o.w &&
-        CUBE_X + CUBE_SIZE - pad > o.x &&
-        cube.y + pad < o.y + o.h &&
-        cube.y + CUBE_SIZE - pad > o.y
-      ) {
-        spawnParticles(CUBE_X + CUBE_SIZE/2, cube.y + CUBE_SIZE/2);
-        spawnParticles(CUBE_X + CUBE_SIZE/2, cube.y + CUBE_SIZE/2);
-        if (score > best) best = score;
-        state = 'dead';
-        updateUI();
-        return;
+    function spawnParticles(x, y) {
+      for (let i = 0; i < 8; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 6,
+          vy: -Math.random() * 6 - 1,
+          life: 1,
+          color: colors.particle[Math.floor(Math.random() * 4)],
+          size: 3 + Math.random() * 3
+        });
       }
     }
-  }
 
-  function updateUI() {
-    document.getElementById('gd-score').textContent = 'Wynik: ' + score;
-    document.getElementById('gd-best').textContent = 'Rekord: ' + best;
-    const hint = document.getElementById('gd-hint');
-    hint.textContent = state === 'playing' ? 'Skocz!' : (state === 'dead' ? 'Spróbuj ponownie' : 'Kliknij lub wciśnij spację, żeby skoczyć');
-  }
+    function drawBg() {
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, '#0f0c29');
+      grad.addColorStop(1, '#302b63');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
 
-  function jump() {
-    if (state === 'idle' || state === 'dead') {
-      init();
-      state = 'playing';
-      cube.vy = JUMP;
-      cube.onGround = false;
-      return;
+      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      for (let i = 0; i < 40; i++) {
+        const sx = ((i * 173 + bg.x * 0.2) % W + W) % W;
+        const sy = (i * 67) % (GROUND - 20);
+        const r  = 0.5 + (i % 3) * 0.5;
+        ctx.beginPath();
+        ctx.arc(sx, sy, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const lineCount = 6;
+      for (let l = 0; l < lineCount; l++) {
+        const lx = ((bg.x * 0.5 * (l + 1) * 0.3) % (W * 1.5) + W * 1.5) % (W * 1.5);
+        ctx.strokeStyle = `rgba(168,85,247,${0.04 + l * 0.015})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(lx - W * 0.5, 0);
+        ctx.lineTo(lx, GROUND);
+        ctx.stroke();
+      }
     }
-    if (state === 'playing' && cube.onGround) {
-      cube.vy = JUMP;
-      cube.onGround = false;
+
+    function drawGround() {
+      ctx.fillStyle = colors.ground;
+      ctx.fillRect(0, GROUND, W, H - GROUND);
+      ctx.fillStyle = colors.groundLine;
+      ctx.fillRect(0, GROUND, W, 3);
+      ctx.fillStyle = 'rgba(168,85,247,0.3)';
+      ctx.fillRect(0, GROUND + 3, W, 1);
+
+      const tileW = 40;
+      const off   = bg.x % tileW;
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      for (let tx = -off; tx < W; tx += tileW) {
+        ctx.beginPath();
+        ctx.moveTo(tx, GROUND + 3);
+        ctx.lineTo(tx, H);
+        ctx.stroke();
+      }
     }
-  }
 
-  function loop(ts) {
-    if (lastTime === null) lastTime = ts;
-    const dt = ts - lastTime;
-    lastTime = ts;
+    function drawCube() {
+      const cx = CUBE_X + CUBE_SIZE / 2;
+      const cy = cube.y + CUBE_SIZE / 2;
 
-    if (state === 'playing') {
-      update(dt);
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(cube.angle);
+
+      ctx.shadowColor = colors.cubeGlow;
+      ctx.shadowBlur  = 12;
+
+      ctx.fillStyle = colors.cube;
+      ctx.beginPath();
+      ctx.roundRect(-CUBE_SIZE / 2, -CUBE_SIZE / 2, CUBE_SIZE, CUBE_SIZE, 4);
+      ctx.fill();
+
+      ctx.shadowBlur = 0;
+
+      ctx.strokeStyle = colors.cubeEdge;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(-CUBE_SIZE / 2, -CUBE_SIZE / 2, CUBE_SIZE, CUBE_SIZE, 4);
+      ctx.stroke();
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      const s2 = CUBE_SIZE * 0.4;
+      ctx.strokeRect(-s2 / 2, -s2 / 2, s2, s2);
+
+      ctx.strokeStyle = 'rgba(192,132,252,0.6)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-CUBE_SIZE / 2, -CUBE_SIZE / 2);
+      ctx.lineTo(CUBE_SIZE / 2, CUBE_SIZE / 2);
+      ctx.stroke();
+
+      ctx.restore();
+    }
+
+    function drawObstacle(o) {
+      if (o.type === 'spike') {
+        const grad = ctx.createLinearGradient(o.x, o.y, o.x + o.w, o.y + o.h);
+        grad.addColorStop(0, colors.obstacle[0]);
+        grad.addColorStop(1, colors.obstacle[1]);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(o.x, o.y + o.h);
+        ctx.lineTo(o.x + o.w / 2, o.y);
+        ctx.lineTo(o.x + o.w, o.y + o.h);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = colors.obstacleEdge;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        const grad = ctx.createLinearGradient(o.x, o.y, o.x, o.y + o.h);
+        grad.addColorStop(0, colors.obstacle[0]);
+        grad.addColorStop(1, colors.obstacle[1]);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.roundRect(o.x, o.y, o.w, o.h, 3);
+        ctx.fill();
+        ctx.strokeStyle = colors.obstacleEdge;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(o.x, o.y, o.w, o.h, 3);
+        ctx.stroke();
+      }
+    }
+
+    function drawParticles() {
+      particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle   = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        ctx.fill();
+      });
+      ctx.globalAlpha = 1;
+    }
+
+    function drawHUD() {
+      ctx.fillStyle  = 'rgba(255,255,255,0.9)';
+      ctx.font       = '500 16px system-ui';
+      ctx.textAlign  = 'left';
+      ctx.fillText(score, 12, 24);
+
+      const pct = Math.min(score / 500, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.beginPath();
+      ctx.roundRect(W - 112, 10, 100, 6, 3);
+      ctx.fill();
+      ctx.fillStyle = '#a855f7';
+      ctx.beginPath();
+      ctx.roundRect(W - 112, 10, pct * 100, 6, 3);
+      ctx.fill();
+    }
+
+    function drawIdle() {
+      drawBg();
+      drawGround();
+      drawCube();
+
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle  = '#fff';
+      ctx.font       = '500 28px system-ui';
+      ctx.textAlign  = 'center';
+      ctx.fillText('Geometry Dash', W / 2, H / 2 - 20);
+      ctx.font       = '400 14px system-ui';
+      ctx.fillStyle  = 'rgba(255,255,255,0.7)';
+      ctx.fillText('Kliknij lub naciśnij spację, żeby zacząć', W / 2, H / 2 + 12);
+    }
+
+    function drawDead() {
       drawBg();
       drawGround();
       obstacles.forEach(drawObstacle);
-      drawCube();
       drawParticles();
       drawHUD();
-      updateUI();
-    } else if (state === 'idle') {
-      drawIdle();
-    } else {
-      drawDead();
-      drawParticles();
-      updateUI();
+
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.fillStyle  = '#f87171';
+      ctx.font       = '500 26px system-ui';
+      ctx.textAlign  = 'center';
+      ctx.fillText('Uderzono!', W / 2, H / 2 - 16);
+      ctx.fillStyle  = 'rgba(255,255,255,0.8)';
+      ctx.font       = '400 14px system-ui';
+      ctx.fillText(`Wynik: ${score}  |  Rekord: ${best}`, W / 2, H / 2 + 12);
+      ctx.fillStyle  = 'rgba(255,255,255,0.5)';
+      ctx.font       = '400 13px system-ui';
+      ctx.fillText('Kliknij, żeby spróbować znowu', W / 2, H / 2 + 34);
     }
 
-    ctx.textAlign = 'left';
+    function update(dt) {
+      dt = Math.min(dt, 40);
+      const s = dt / 16.67;
+
+      bg.x += speed * s;
+
+      cube.vy  += GRAVITY * s;
+      cube.y   += cube.vy * s;
+
+      if (cube.y >= GROUND - CUBE_SIZE) {
+        cube.y        = GROUND - CUBE_SIZE;
+        cube.vy       = 0;
+        cube.onGround = true;
+      } else {
+        cube.onGround = false;
+      }
+
+      cube.angle += (cube.onGround ? 0.07 : 0.09) * speed / 5 * s;
+
+      spawnTimer += s;
+      if (spawnTimer >= spawnInterval) {
+        spawnObstacle();
+        spawnTimer    = 0;
+        spawnInterval = Math.max(45, spawnInterval - 0.5);
+      }
+
+      obstacles = obstacles.filter(o => { o.x -= speed * s; return o.x > -60; });
+
+      particles = particles.filter(p => {
+        p.x   += p.vx * s;
+        p.y   += p.vy * s;
+        p.vy  += 0.15 * s;
+        p.life -= 0.025 * s;
+        return p.life > 0;
+      });
+
+      score += Math.round(speed * s * 0.4);
+      speed  = SPEEDS[Math.min(Math.floor(score / 200), SPEEDS.length - 1)];
+
+      for (const o of obstacles) {
+        const pad = 4;
+        if (
+          CUBE_X + pad         < o.x + o.w &&
+          CUBE_X + CUBE_SIZE - pad > o.x   &&
+          cube.y + pad         < o.y + o.h &&
+          cube.y + CUBE_SIZE - pad > o.y
+        ) {
+          spawnParticles(CUBE_X + CUBE_SIZE / 2, cube.y + CUBE_SIZE / 2);
+          spawnParticles(CUBE_X + CUBE_SIZE / 2, cube.y + CUBE_SIZE / 2);
+          if (score > best) best = score;
+          state = 'dead';
+          updateUI();
+          return;
+        }
+      }
+    }
+
+    function updateUI() {
+      document.getElementById('gd-score').textContent = 'Wynik: ' + score;
+      document.getElementById('gd-best').textContent  = 'Rekord: ' + best;
+      const hint = document.getElementById('gd-hint');
+      if (state === 'playing') hint.textContent = 'Skocz!';
+      else if (state === 'dead') hint.textContent = 'Spróbuj ponownie';
+      else hint.textContent = 'Kliknij lub wciśnij spację, żeby skoczyć';
+    }
+
+    function jump() {
+      if (state === 'idle' || state === 'dead') {
+        init();
+        state         = 'playing';
+        cube.vy       = JUMP;
+        cube.onGround = false;
+        return;
+      }
+      if (state === 'playing' && cube.onGround) {
+        cube.vy       = JUMP;
+        cube.onGround = false;
+      }
+    }
+
+    function loop(ts) {
+      if (lastTime === null) lastTime = ts;
+      const dt = ts - lastTime;
+      lastTime  = ts;
+
+      if (state === 'playing') {
+        update(dt);
+        drawBg();
+        drawGround();
+        obstacles.forEach(drawObstacle);
+        drawCube();
+        drawParticles();
+        drawHUD();
+        updateUI();
+      } else if (state === 'idle') {
+        drawIdle();
+      } else {
+        drawDead();
+        drawParticles();
+        updateUI();
+      }
+
+      ctx.textAlign = 'left';
+      raf = requestAnimationFrame(loop);
+    }
+
+    canvas.addEventListener('click', jump);
+    document.addEventListener('keydown', e => {
+      if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); }
+    });
+
+    init();
     raf = requestAnimationFrame(loop);
-  }
-
-  canvas.addEventListener('click', jump);
-  document.addEventListener('keydown', e => {
-    if (e.code === 'Space' || e.code === 'ArrowUp') { e.preventDefault(); jump(); }
-  });
-
-  init();
-  raf = requestAnimationFrame(loop);
-})();
-</script>
+  })();
+  </script>
+</body>
+</html>
